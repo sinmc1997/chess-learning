@@ -147,7 +147,7 @@
     if (R.i >= R.qs.length) return roundDone();
     var q = R.qs[R.i], it = SITE.items[q.key] || { name: label(q.key) };
     var h = '<div class="bar"><span class="pill">' + (R.replay ? '重做錯題' : '練習') + '</span>' +
-      '<span>第 ' + (R.i + 1) + ' / ' + R.n + ' 題</span><span class="pill">' + esc(it.name) + '</span>' +
+      '<span>第 ' + (R.i + 1) + ' / ' + R.n + ' 題</span><span class="pill">' + esc(it.cat || '') + '</span>' +
       '<a href="#" class="lnk" data-act="home">× 離開</a></div>';
     h += '<div class="card"><div class="prompt">' + esc(q.prompt) + '</div>';
     if (q.visual) h += '<div class="visual">' + q.visual + '</div>';
