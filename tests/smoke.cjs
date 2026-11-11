@@ -33,7 +33,7 @@ step('學習課程', () => click('learnList'));
 step('開課', () => click('learn', ctx.window.SITE.order[2]));
 step('自評', () => click('recall', ctx.window.SITE.order[2] + '|5'));
 step('練習 10 題', () => click('quiz'));
-for (let i = 0; i < 10; i++) {
+for (let i = 0; i < 20 && !html.includes('本輪'); i++) {
   step('答題 ' + i, () => { click('choose', '0'); click('submit'); click('next'); });
 }
 step('一輪完成頁', () => { if (!html.includes('本輪')) throw new Error('未見結果'); });

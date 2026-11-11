@@ -134,13 +134,39 @@
       if (!R.replay) {
         R.lastM = { key: q.key, seed: q.seed, t: Date.now(), chosen: opt.t, correct: cor.t, expl: q.expl, self: '' };
         S.mistakes.push(R.lastM);
+        // 即時重溫：同一項目換一題，隔 2 題再出（每輪最多加 3 題）
+        if ((R.extra || 0) < 3) {
+          R.extra = (R.extra || 0) + 1;
+          R.qs.splice(Math.min(R.i + 3, R.qs.length), 0, SITE.makeQ(q.key, Math.floor(Math.random() * 1e9)));
+          R.n = R.qs.length;
+          R.requeued = true;
+        }
       }
     }
     R.res.push({ key: q.key, ok: ok, prompt: q.prompt, chosen: opt.t, correct: cor.t, expl: q.expl });
     save();
     render();
   }
-  function next() { if (R) { R.i++; R.sel = null; R.answered = false; R.lastM = null; render(); } }
+  function next() { if (R) { R.i++; R.sel = null; R.answered = false; R.lastM = null; R.requeued = false; render(); } }
+
+  // ---------- 讀音（只喺裝置有粵語語音時顯示） ----------
+  function hkVoice() {
+    if (!('speechSynthesis' in window)) return null;
+    var vs = window.speechSynthesis.getVoices() || [];
+    for (var i = 0; i < vs.length; i++) if (/^(zh[-_]HK|yue)/i.test(vs[i].lang)) return vs[i];
+    return null;
+  }
+  function speak(text) {
+    var v = hkVoice();
+    if (!v || !text) return;
+    var u = new SpeechSynthesisUtterance(text);
+    u.voice = v; u.lang = v.lang; u.rate = 0.8;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = function () { if (R && R.i < R.qs.length) render(); };
+  }
 
   function render() {
     if (!R) return home();
@@ -151,6 +177,7 @@
       '<a href="#" class="lnk" data-act="home">× 離開</a></div>';
     h += '<div class="card"><div class="prompt">' + esc(q.prompt) + '</div>';
     if (q.visual) h += '<div class="visual">' + q.visual + '</div>';
+    if (q.say && hkVoice()) h += '<div class="row center"><button data-act="say" data-arg="' + esc(q.say) + '">🔊 讀出嚟</button></div>';
     h += '<div class="opts">';
     q.options.forEach(function (o, i) {
       var cls = 'opt';
@@ -164,7 +191,8 @@
       h += '<div class="row"><label class="guessbox"><input type="checkbox" id="guess"> 🎲 估（唔肯定）</label>' +
         '<button class="primary" data-act="submit"' + (R.sel == null ? ' disabled' : '') + '>提交</button></div>';
     } else {
-      h += '<div class="' + (R.ok ? 'okbox' : 'badbox') + '"><b>' + (R.ok ? '✔ 啱' : '✘ 錯') + '</b><br>' + esc(q.expl) + '</div>';
+      h += '<div class="' + (R.ok ? 'okbox' : 'badbox') + '"><b>' + (R.ok ? '✔ 啱' : '✘ 錯') + '</b><br>' + esc(q.expl) +
+        (R.requeued ? '<br><small>🔁 同一課會喺 2 題之後換一題再考你。</small>' : '') + '</div>';
       if (!R.ok && R.lastM) {
         h += '<label class="self">用自己嘅話寫點解錯（存入錯題本）<textarea id="self" rows="2">' + esc(R.lastM.self) + '</textarea></label>' +
           '<div class="row"><button data-act="saveSelf">保存解釋</button></div>';
@@ -373,6 +401,7 @@
       case 'replay': startReplay(S.mistakes[+g]); break;
       case 'delMistake': S.mistakes.splice(+g, 1); save(); mistakesView(); break;
       case 'stats': statsView(); break;
+      case 'say': speak(g); break;
       case 'export': exportJSON(); break;
       case 'importClick': var f = document.getElementById('imp'); if (f) f.click(); break;
       case 'reset':
