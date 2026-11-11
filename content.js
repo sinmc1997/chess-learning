@@ -1,4 +1,4 @@
-/* content.js — 國際象棋：項目、題目生成器。純邏輯、無 DOM，可以喺 Node 直接測試。
+/* content.js — 西洋棋（國際象棋）：項目、題目生成器。純邏輯、無 DOM，可以喺 Node 直接測試。
    每個生成器 gen(rng) 回傳 {prompt, visual, options:[{t, ok, k}], expl}。
    k = 混淆矩陣用嘅項目 key。makeQ(key, seed) 確定性：同一個 seed 永遠出同一題。 */
 (function (root) {
@@ -71,18 +71,60 @@
     var dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
     return (dx === 1 && dy === 2) || (dx === 2 && dy === 1);
   }
-  function boardHtml(pcs) {
+  function boardHtml(pcs, marks) {
+    marks = marks || {};
     var h = '<div class="board">';
     for (var r = 7; r >= 0; r--) {
       for (var f = 0; f < 8; f++) {
         var p = null;
         for (var i = 0; i < pcs.length; i++) if (pcs[i].f === f && pcs[i].r === r) { p = pcs[i].p; break; }
         var coord = (f === 0 ? '<span class="rk">' + (r + 1) + '</span>' : '') + (r === 0 ? '<span class="fl">' + FILES[f] + '</span>' : '');
-        h += '<div class="sq ' + ((f + r) % 2 === 0 ? 'd' : 'l') + '" title="' + sqn(f, r) + '">' + coord + (p ? SYM[p] : '') + '</div>';
+        h += '<div class="sq ' + ((f + r) % 2 === 0 ? 'd' : 'l') + (marks[sqn(f, r)] ? ' ' + marks[sqn(f, r)] : '') + '" title="' + sqn(f, r) + '">' + coord + (p ? SYM[p] : '') + '</div>';
       }
     }
     return h + '</div>';
   }
+
+  // ---------- 圖解（學習頁示意圖） ----------
+  // 標記：dot＝可以去、hit＝被攻擊／目標、from＝主角
+  function S2(s) { return { f: FILES.indexOf(s[0]), r: +s[1] - 1 }; }
+  function P2(s, p) { var o = S2(s); o.p = p; return o; }
+  function M(obj) { return obj; }
+  function diag(pcs, marks, cap) {
+    return boardHtml(pcs, marks) + '<div class="legend"><span class="lg dot"></span>可以去　<span class="lg hit"></span>目標／受攻擊　<span class="lg from"></span>主角</div><div class="cap">' + cap + '</div>';
+  }
+  function moveDiag(p) {
+    var f = 3, r = 3, m = {};
+    reach(p, f, r).forEach(function (t) { m[sqn(t[0], t[1])] = 'dot'; });
+    m[sqn(f, r)] = 'from';
+    return diag([{ f: f, r: r, p: p }], m, '白' + NAME[p] + '喺 d4：綠點＝一步可以去嘅格。' + RULE[p] + '。');
+  }
+  var DIAG = {
+    rook: moveDiag('R'), bishop: moveDiag('B'), knight: moveDiag('N'), queen: moveDiag('Q'), king: moveDiag('K'),
+    pawn: diag([P2('e2', 'P'), P2('f3', 'n')], M({ e2: 'from', e3: 'dot', e4: 'dot', f3: 'hit' }),
+      '白兵喺 e2（起始排）：可以行一格去 e3 或者兩格去 e4；斜前 f3 有黑棋就可以吃（紅框）。'),
+    value: '<div class="mat">♕ 后 9　♖ 車 5<br>♗ 象 3　♘ 馬 3　♙ 兵 1</div><div class="cap">交換之前先計分：用馬（3）換車（5）＝賺 2 分。</div>',
+    check: diag([P2('e1', 'R'), P2('e8', 'k')], M({ e1: 'from', e2: 'dot', e3: 'dot', e4: 'dot', e5: 'dot', e6: 'dot', e7: 'dot', e8: 'hit' }),
+      '白車沿 e 線將軍黑王。黑方三個方法：走王、喺 e2–e7 之間擋、或者吃車。'),
+    fork: diag([P2('c7', 'N'), P2('e8', 'k'), P2('a8', 'r')], M({ c7: 'from', e8: 'hit', a8: 'hit' }),
+      '白馬喺 c7 同時攻擊黑王（e8）同黑車（a8）：黑王一定要走，白馬就吃車。'),
+    pin: diag([P2('b5', 'B'), P2('c6', 'n'), P2('e8', 'k')], M({ b5: 'from', c6: 'hit', d7: 'dot', e8: 'hit' }),
+      '白象喺 b5 牽制黑馬（c6）：黑馬一郁，後面嘅黑王（e8）就被將，所以佢郁唔得（前細後大）。'),
+    skewer: diag([P2('a4', 'R'), P2('e4', 'k'), P2('h4', 'q')], M({ a4: 'from', e4: 'hit', h4: 'hit' }),
+      '白車將軍黑王（e4）。黑王避開之後，白車就吃後面嘅黑后（h4）＝串擊（前大後細）。'),
+    backrank: diag([P2('a8', 'R'), P2('g8', 'k'), P2('f7', 'p'), P2('g7', 'p'), P2('h7', 'p'), P2('g1', 'K')], M({ a8: 'from', g8: 'hit' }),
+      '白車去咗 a8 將軍：黑王前面被自己三粒兵封住，f8、h8 又被車控制 → 將死。'),
+    mate: diag([P2('g7', 'Q'), P2('h8', 'k'), P2('f6', 'K')], M({ g7: 'from', h8: 'hit' }),
+      '白后喺 g7 將軍，有白王（f6）保護：黑王冇格逃、又吃唔到后 → 將死。'),
+    castle: diag([P2('e1', 'K'), P2('h1', 'R')], M({ e1: 'from', h1: 'from', g1: 'dot', f1: 'dot' }),
+      '短易位：王由 e1 行兩格去 g1，車由 h1 跳去 f1（綠點）。長易位就係王去 c1、車去 d1。'),
+    promote: diag([P2('e7', 'P')], M({ e7: 'from', e8: 'dot' }),
+      '白兵行到 e8（最後一排）即刻升變，通常變做后。'),
+    enpassant: diag([P2('e5', 'P'), P2('d5', 'p')], M({ e5: 'from', d5: 'hit', d6: 'dot' }),
+      '黑兵啱啱由 d7 一步行兩格到 d5，停喺白兵（e5）隔籬：白兵下一步可以斜行去 d6，吃走 d5 嘅黑兵。'),
+    principle: diag([P2('e4', 'P'), P2('f3', 'N'), P2('c3', 'N'), P2('c4', 'B'), P2('g1', 'K'), P2('f1', 'R')], M({ d4: 'dot', d5: 'dot', e5: 'dot', e4: 'from' }),
+      '開局：兵佔中心（e4，綠點係其他中心格）、出馬（c3、f3）、出象（c4）、王車易位（王去咗 g1）。')
+  };
 
   // ---------- 生成器：走法（一步可以去邊格） ----------
   function genMove(p) {
@@ -351,6 +393,22 @@
       fail: '過咗一步先記起，已經唔得', tip: '你嘅兵要喺第 5 排（白）先有機會。', gens: [genConcept(13)] }
   };
 
+  // ---------- 關卡 ----------
+  var LEVELS = [
+    { id: 'C1', name: '車同象', desc: '直線同斜線', items: ['rook', 'bishop'], n: 8 },
+    { id: 'C2', name: '馬', desc: 'L 形跳躍', items: ['knight'], n: 8 },
+    { id: 'C3', name: '后同王', desc: '最強同最重要', items: ['queen', 'king'], n: 8 },
+    { id: 'C4', name: '兵', desc: '行法、升變、吃過路兵', items: ['pawn', 'promote', 'enpassant'], n: 8 },
+    { id: 'C5', name: '走法大混戰', desc: '六種棋子混合', items: ['rook', 'bishop', 'knight', 'queen', 'king', 'pawn'], n: 10 },
+    { id: 'C6', name: '子力價值', desc: '計分、判斷交換', items: ['value'], n: 8 },
+    { id: 'C7', name: '將軍', desc: '邊粒將緊軍（計阻擋）', items: ['check'], n: 8 },
+    { id: 'C8', name: '叉', desc: '一粒攻擊兩粒', items: ['fork'], n: 8 },
+    { id: 'C9', name: '牽制同串擊', desc: '前細後大／前大後細', items: ['pin', 'skewer'], n: 8 },
+    { id: 'C10', name: '一步殺', desc: '底線將死、將死', items: ['backrank', 'mate'], n: 8 },
+    { id: 'C11', name: '規則同開局', desc: '易位、升變、過路兵、開局原則', items: ['castle', 'promote', 'enpassant', 'principle'], n: 8 },
+    { id: 'C12', name: '畢業考', desc: '全部混合', items: null, n: 15 }
+  ];
+
   // ---------- 出題（確定性） ----------
   function makeQ(k, seed) {
     var it = ITEMS[k];
@@ -364,14 +422,17 @@
 
   var SITE = {
     id: 'chess-learning-v1',
-    title: '國際象棋學習',
+    title: '西洋棋學習',
     subtitle: '練方法，唔係背答案：每次題目都隨機生成',
     util: util,
     items: ITEMS,
     order: Object.keys(ITEMS),
     labels: {},
+    levels: LEVELS,
     makeQ: makeQ
   };
+  LEVELS[LEVELS.length - 1].items = SITE.order;
+  SITE.order.forEach(function (k) { if (DIAG[k]) ITEMS[k].diagram = DIAG[k]; });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = SITE;
   else root.SITE = SITE;

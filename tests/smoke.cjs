@@ -5,7 +5,7 @@ const dir = path.join(__dirname, '..');
 const store = {};
 let handler = null, keyHandler = null, html = '';
 const app = { set innerHTML(v) { html = v; }, get innerHTML() { return html; } };
-const elems = { app, toast: { textContent: '', className: '' }, imp: { click() {} }, guess: null, self: null };
+const elems = { app, toast: { textContent: '', className: '' }, imp: { click() {} }, guess: null, self: null, ans: { value: 'abc', focus() {} } };
 const doc = {
   getElementById: id => elems[id] || null,
   querySelector: () => null,
@@ -40,6 +40,11 @@ step('一輪完成頁', () => { if (!html.includes('本輪')) throw new Error('�
 step('錯題本', () => click('mistakes'));
 step('統計', () => click('stats'));
 step('返主頁', () => click('home'));
+if (ctx.window.SITE.levels) {
+  step('關卡地圖', () => { click('levels'); if (!html.includes('第 1 關')) throw new Error('冇關卡'); });
+  step('打第 1 關', () => { click('level', ctx.window.SITE.levels[0].id); for (let i = 0; i < 20 && !html.includes('關卡地圖'); i++) { click('choose', '0'); click('submit'); click('next'); } if (!html.includes('第 1 關')) throw new Error('關卡結果頁唔見'); });
+}
+if (ctx.window.SITE.guide) step('教學頁', () => { click('guide'); if (!html.includes('輸入法')) throw new Error('教學頁空'); });
 // 製造一題錯題再重做
 step('重做錯題', () => { if (ctx.window.SITE) click('quizKey', ctx.window.SITE.order[0]); click('choose', '1'); click('submit'); click('saveSelf'); click('next'); click('mistakes'); click('replay', '0'); });
 const saved = JSON.parse(store[Object.keys(store)[0]]);

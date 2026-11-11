@@ -10,7 +10,7 @@
 
   // ---------- 儲存 ----------
   function fresh() {
-    return { cards: {}, rating: {}, conf: {}, mistakes: [], learned: {}, hist: [], days: [], saved: '' };
+    return { cards: {}, rating: {}, conf: {}, mistakes: [], learned: {}, hist: [], days: [], levels: {}, saved: '' };
   }
   function load() {
     try {
@@ -79,9 +79,9 @@
   function isDue(k) { var c = S.cards[k]; return !!c && c.due <= Date.now(); }
 
   // 智能揀項目：到期 > 剛答錯 > 未學 > 弱項；同上一題同項目重扣分（交錯練習）
-  function pickKey(prev) {
+  function pickKey(prev, pool) {
     var best = null, bs = -1e9;
-    SITE.order.forEach(function (k) {
+    (pool || SITE.order).forEach(function (k) {
       var c = S.cards[k], s = 0;
       if (c && c.due <= Date.now()) s += 100;
       if (c && c.reps === 0 && c.lapses > 0 && c.due > Date.now()) s += 60;
@@ -98,15 +98,57 @@
   }
 
   // ---------- 練習回合 ----------
-  function startQuiz(n, forceKey) {
+  function startQuiz(n, forceKey, pool, level) {
     var qs = [], prev = null;
     for (var i = 0; i < n; i++) {
-      var k = forceKey || pickKey(prev);
+      var k = forceKey || pickKey(prev, pool);
       prev = k;
       qs.push(SITE.makeQ(k, Math.floor(Math.random() * 1e9)));
     }
-    R = { qs: qs, n: n, i: 0, sel: null, answered: false, res: [] };
+    R = { qs: qs, n: n, i: 0, sel: null, answered: false, res: [], level: level || null };
     render();
+  }
+
+  // ---------- 關卡 ----------
+  function levelOf(id) { return (SITE.levels || []).filter(function (L) { return L.id === id; })[0]; }
+  function levelOpen(i) { return i === 0 || ((S.levels[SITE.levels[i - 1].id] || {}).stars || 0) > 0; }
+  function starText(n) { return '★★★'.slice(0, n) + '☆☆☆'.slice(0, 3 - n); }
+  function startLevel(id) {
+    var L = levelOf(id);
+    if (!L) return home();
+    startQuiz(L.n || 8, null, L.items, L.id);
+  }
+  function levelsView() {
+    var h = '<div class="bar"><a href="#" class="lnk" data-act="home">← 主頁</a></div><h2>🎮 關卡挑戰</h2>' +
+      '<p class="muted">每關答啱 80% 過關（★），90% ★★，全啱 ★★★。過咗先開下一關。關卡入面答錯唔會即時重出，似考試。</p><div class="grid">';
+    SITE.levels.forEach(function (L, i) {
+      var rec = S.levels[L.id], open = levelOpen(i);
+      h += '<button class="tile' + (open ? '' : ' locked') + '"' + (open ? ' data-act="level" data-arg="' + L.id + '"' : ' disabled') + '>' +
+        '<b>' + (open ? '' : '🔒 ') + '第 ' + (i + 1) + ' 關：' + esc(L.name) + '</b><span>' + esc(L.desc) + '（' + (L.n || 8) + ' 題）</span>' +
+        '<span class="stars">' + starText(rec ? rec.stars : 0) + (rec ? '　最佳 ' + pct(rec.best) : '') + '</span></button>';
+    });
+    view(h + '</div>');
+  }
+  function levelDone() {
+    var L = levelOf(R.level), res = R.res;
+    var ok = res.filter(function (r) { return r.ok; }).length, n = res.length, p = n ? ok / n : 0;
+    var stars = p >= 1 ? 3 : p >= 0.9 ? 2 : p >= (L.pass || 0.8) ? 1 : 0;
+    var rec = S.levels[L.id] || { best: 0, stars: 0, tries: 0 };
+    rec.tries++; if (p > rec.best) rec.best = p; if (stars > rec.stars) rec.stars = stars;
+    S.levels[L.id] = rec; save();
+    var idx = SITE.levels.indexOf(L), nx = SITE.levels[idx + 1];
+    var h = '<div class="bar"><a href="#" class="lnk" data-act="levels">← 關卡地圖</a></div><div class="card">';
+    h += '<h2>第 ' + (idx + 1) + ' 關：' + esc(L.name) + '</h2>';
+    h += '<p class="bigstars">' + starText(stars) + '</p>';
+    h += '<p><b>' + ok + ' / ' + n + '（' + pct(p) + '）</b>　' + (stars ? '🎉 過關！' : '未過關，要答啱 ' + pct(L.pass || 0.8) + '。') + '</p>';
+    res.forEach(function (r, i) {
+      if (!r.ok) h += '<div class="rrow bad">✘ 第 ' + (i + 1) + ' 題 · ' + esc(label(r.key)) + '<br><small>' + esc(r.prompt) + '</small><br>你答：' + esc(r.chosen) + '　正解：' + esc(r.correct) + '</div>';
+    });
+    h += '<div class="row">' + (stars && nx ? '<button class="primary" data-act="level" data-arg="' + nx.id + '">下一關 →</button>' : '') +
+      '<button' + (stars ? '' : ' class="primary"') + ' data-act="level" data-arg="' + L.id + '">再挑戰</button>' +
+      '<button data-act="levels">關卡地圖</button></div></div>';
+    R = null;
+    view(h);
   }
   function startReplay(m) {
     if (!m) return home();
@@ -115,15 +157,28 @@
   }
   function choose(i) { if (R && !R.answered) { R.sel = i; render(); } }
   function submit() {
-    if (!R || R.answered || R.sel == null) return;
-    var q = R.qs[R.i], opt = q.options[R.sel];
-    var g = document.getElementById('guess');
-    var guess = !!(g && g.checked), ok = !!opt.ok;
-    var cor = q.options.filter(function (o) { return o.ok; })[0];
+    if (!R || R.answered) return;
+    var q = R.qs[R.i], opt, cor, guess = false, ok;
+    if (q.input) {
+      var el = document.getElementById('ans'), val = el ? String(el.value || '').trim() : '';
+      if (!val) { toast('未打字'); return; }
+      var res = q.check(val) || {};
+      ok = !!res.ok;
+      opt = { t: val, ok: ok, k: res.k || q.key };
+      cor = { t: q.answerText, ok: true, k: q.key };
+      R.typed = val; R.note = res.note || '';
+    } else {
+      if (R.sel == null) return;
+      opt = q.options[R.sel];
+      var g = document.getElementById('guess');
+      guess = !!(g && g.checked); ok = !!opt.ok;
+      cor = q.options.filter(function (o) { return o.ok; })[0];
+    }
+    R.ms = Date.now() - (R.t0 || Date.now());
     R.answered = true; R.ok = ok;
     touchDay();
     S.learned[q.key] = true;
-    S.hist.push({ key: q.key, ok: ok, guess: guess, t: Date.now() });
+    S.hist.push({ key: q.key, ok: ok, guess: guess, t: Date.now(), ms: R.ms, unit: q.unit || 0 });
     elo(q.key, ok);
     review(q.key, ok ? (guess ? 3 : 4) : 1);
     if (!ok) {
@@ -135,7 +190,7 @@
         R.lastM = { key: q.key, seed: q.seed, t: Date.now(), chosen: opt.t, correct: cor.t, expl: q.expl, self: '' };
         S.mistakes.push(R.lastM);
         // 即時重溫：同一項目換一題，隔 2 題再出（每輪最多加 3 題）
-        if ((R.extra || 0) < 3) {
+        if (!R.level && (R.extra || 0) < 3) {
           R.extra = (R.extra || 0) + 1;
           R.qs.splice(Math.min(R.i + 3, R.qs.length), 0, SITE.makeQ(q.key, Math.floor(Math.random() * 1e9)));
           R.n = R.qs.length;
@@ -147,7 +202,7 @@
     save();
     render();
   }
-  function next() { if (R) { R.i++; R.sel = null; R.answered = false; R.lastM = null; R.requeued = false; render(); } }
+  function next() { if (R) { R.i++; R.sel = null; R.answered = false; R.lastM = null; R.requeued = false; R.t0 = 0; R.typed = ''; R.note = ''; render(); } }
 
   // ---------- 讀音（只喺裝置有粵語語音時顯示） ----------
   function hkVoice() {
@@ -165,7 +220,8 @@
     window.speechSynthesis.speak(u);
   }
   if ('speechSynthesis' in window) {
-    window.speechSynthesis.onvoiceschanged = function () { if (R && R.i < R.qs.length) render(); };
+    // 打字題唔重畫（會清走打緊嘅字）
+    window.speechSynthesis.onvoiceschanged = function () { if (R && R.i < R.qs.length && !R.qs[R.i].input) render(); };
   }
 
   function render() {
@@ -178,20 +234,33 @@
     h += '<div class="card"><div class="prompt">' + esc(q.prompt) + '</div>';
     if (q.visual) h += '<div class="visual">' + q.visual + '</div>';
     if (q.say && hkVoice()) h += '<div class="row center"><button data-act="say" data-arg="' + esc(q.say) + '">🔊 讀出嚟</button></div>';
-    h += '<div class="opts">';
-    q.options.forEach(function (o, i) {
-      var cls = 'opt';
-      if (R.answered) { if (o.ok) cls += ' good'; else if (i === R.sel) cls += ' bad'; }
-      else if (i === R.sel) cls += ' sel';
-      h += '<button class="' + cls + '" data-act="choose" data-arg="' + i + '"' + (R.answered ? ' disabled' : '') +
-        '><kbd>' + (i + 1) + '</kbd> ' + esc(o.t) + '</button>';
-    });
-    h += '</div>';
-    if (!R.answered) {
-      h += '<div class="row"><label class="guessbox"><input type="checkbox" id="guess"> 🎲 估（唔肯定）</label>' +
-        '<button class="primary" data-act="submit"' + (R.sel == null ? ' disabled' : '') + '>提交</button></div>';
+    if (q.input) {
+      // 打字題：自己打答案（生成效應）
+      if (!R.answered) {
+        h += '<div class="row"><input id="ans" class="ans" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"' +
+          ' lang="' + (q.lang || 'en') + '" inputmode="' + (q.inputmode || 'text') + '" placeholder="' + esc(q.placeholder || '') + '"></div>' +
+          '<div class="row"><button class="primary" data-act="submit">提交（Enter）</button></div>';
+      }
     } else {
-      h += '<div class="' + (R.ok ? 'okbox' : 'badbox') + '"><b>' + (R.ok ? '✔ 啱' : '✘ 錯') + '</b><br>' + esc(q.expl) +
+      h += '<div class="opts">';
+      q.options.forEach(function (o, i) {
+        var cls = 'opt';
+        if (R.answered) { if (o.ok) cls += ' good'; else if (i === R.sel) cls += ' bad'; }
+        else if (i === R.sel) cls += ' sel';
+        h += '<button class="' + cls + '" data-act="choose" data-arg="' + i + '"' + (R.answered ? ' disabled' : '') +
+          '><kbd>' + (i + 1) + '</kbd> ' + esc(o.t) + '</button>';
+      });
+      h += '</div>';
+      if (!R.answered) {
+        h += '<div class="row"><label class="guessbox"><input type="checkbox" id="guess"> 🎲 估（唔肯定）</label>' +
+          '<button class="primary" data-act="submit"' + (R.sel == null ? ' disabled' : '') + '>提交</button></div>';
+      }
+    }
+    if (R.answered) {
+      var fb = '';
+      if (q.input) fb += '你打：<code>' + esc(R.typed) + '</code>　正解：<code>' + esc(q.answerText) + '</code>' + (R.note ? '<br>' + esc(R.note) : '') + '<br>';
+      if (q.unit && R.ms) fb += '⏱ ' + (R.ms / 1000).toFixed(1) + ' 秒（約 ' + Math.round(q.unit * 60000 / R.ms) + ' 字／分鐘）<br>';
+      h += '<div class="' + (R.ok ? 'okbox' : 'badbox') + '"><b>' + (R.ok ? '✔ 啱' : '✘ 錯') + '</b><br>' + fb + esc(q.expl) +
         (R.requeued ? '<br><small>🔁 同一課會喺 2 題之後換一題再考你。</small>' : '') + '</div>';
       if (!R.ok && R.lastM) {
         h += '<label class="self">用自己嘅話寫點解錯（存入錯題本）<textarea id="self" rows="2">' + esc(R.lastM.self) + '</textarea></label>' +
@@ -200,7 +269,9 @@
       h += '<div class="row"><button class="primary" data-act="next">' + (R.i + 1 < R.n ? '下一題 →' : '完成') + '</button></div>';
     }
     h += '</div>';
+    if (!R.answered && !R.t0) R.t0 = Date.now();
     view(h);
+    if (q.input && !R.answered) { var a = document.getElementById('ans'); if (a && a.focus) a.focus(); }
   }
 
   function advice(p) {
@@ -209,6 +280,7 @@
     return '錯咗幾題係正常。去錯題本睇原因，寫低自己嘅解釋，再重做。';
   }
   function roundDone() {
+    if (R.level) return levelDone();
     var res = R.res, ok = res.filter(function (r) { return r.ok; }).length, n = res.length;
     var h = '<div class="bar"><a href="#" class="lnk" data-act="home">← 主頁</a></div>';
     h += '<div class="card"><h2>本輪：' + ok + ' / ' + n + '（' + pct(n ? ok / n : 0) + '）</h2><p>' + advice(n ? ok / n : 0) + '</p>';
@@ -230,7 +302,7 @@
     S.learned[k] = true; save();
     var h = '<div class="bar"><a href="#" class="lnk" data-act="home">← 主頁</a></div>';
     h += '<div class="card"><h2>' + esc(it.name) + '</h2><span class="pill">' + esc(it.cat) + '</span>';
-    h += '<p class="mn">💡 ' + esc(it.mn) + '</p><ul>' + it.features.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>';
+    h += '<p class="mn">💡 ' + esc(it.mn) + '</p>' + (it.diagram ? '<div class="visual diagram">' + it.diagram + '</div>' : '') + '<ul>' + it.features.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>';
     h += '<p><b>原理：</b>' + esc(it.principle) + '</p><p><b>常見失敗：</b>' + esc(it.fail) + '</p>';
     if (it.tip) h += '<div class="jlbox"><b>專家重點：</b>' + esc(it.tip) + '</div>';
     h += '<p class="muted">先自己諗 20 秒，再揭示示範（主動回憶）：</p>';
@@ -285,6 +357,13 @@
     var g = S.hist.filter(function (x) { return x.guess; }), ng = S.hist.filter(function (x) { return !x.guess; });
     h += '<p>🎲 估中率 ' + (g.length ? pct(acc(g)) : '—') + ' ｜ 唔估正確率 ' + (ng.length ? pct(acc(ng)) : '—') +
       '（兩者接近＝信心校準好）</p>';
+    var typed = S.hist.filter(function (x) { return x.unit && x.ok && x.ms; });
+    if (typed.length) {
+      var units = typed.reduce(function (a, x) { return a + x.unit; }, 0), ms = typed.reduce(function (a, x) { return a + x.ms; }, 0);
+      var last = typed.slice(-10), lu = last.reduce(function (a, x) { return a + x.unit; }, 0), lm = last.reduce(function (a, x) { return a + x.ms; }, 0);
+      h += '<p>⌨️ 實戰打字速度：平均約 ' + Math.round(units * 60000 / ms) + ' 字／分鐘；最近 ' + last.length + ' 題約 ' +
+        Math.round(lu * 60000 / lm) + ' 字／分鐘（只計答啱）</p>';
+    }
     var top = topConf(8);
     h += '<h3>最常混淆（盲點）</h3>' + (top.length
       ? '<ol>' + top.map(function (c) { return '<li>' + esc(c.a) + ' ↔ ' + esc(c.b) + '：' + c.n + ' 次</li>'; }).join('') + '</ol>'
@@ -335,6 +414,8 @@
       h += '<button class="sugg" data-act="' + s.act + '" data-arg="' + esc(s.arg || '') + '">' + esc(s.t) + '</button>';
     });
     h += '<h3>練習與工具</h3><div class="grid">' +
+      (SITE.levels ? card('levels', '🎮 關卡挑戰', '一關一關過，攞星星') : '') +
+      (SITE.guide ? card('guide', SITE.guideTitle || '📱 教學', SITE.guideDesc || '') : '') +
       card('quiz', '📝 智能練習', '10 題一輪，系統揀最需要練嘅') +
       card('learnList', '📘 學習課程', '示範、要點、主動回憶') +
       card('mistakes', '❌ 錯題本（' + S.mistakes.length + '）', '重做錯題，寫低點解錯') +
@@ -402,6 +483,11 @@
       case 'delMistake': S.mistakes.splice(+g, 1); save(); mistakesView(); break;
       case 'stats': statsView(); break;
       case 'say': speak(g); break;
+      case 'levels': levelsView(); break;
+      case 'level': startLevel(g); break;
+      case 'guide':
+        view('<div class="bar"><a href="#" class="lnk" data-act="home">← 主頁</a></div><div class="card guide">' + (SITE.guide || '') + '</div>');
+        break;
       case 'export': exportJSON(); break;
       case 'importClick': var f = document.getElementById('imp'); if (f) f.click(); break;
       case 'reset':
@@ -421,8 +507,13 @@
   });
   document.addEventListener('keydown', function (e) {
     if (!R || R.i >= R.qs.length) return;
+    if (e.isComposing || e.keyCode === 229) return; // 輸入法揀緊字，唔好當提交
     var tag = e.target.tagName;
     if (tag === 'TEXTAREA' || tag === 'BUTTON') return;
+    if (tag === 'INPUT') {
+      if (e.key === 'Enter' && e.target.id === 'ans') { e.preventDefault(); submit(); }
+      return;
+    }
     if (/^[1-9]$/.test(e.key) && !R.answered && +e.key <= R.qs[R.i].options.length) choose(+e.key - 1);
     else if (e.key === 'Enter') { if (R.answered) next(); else submit(); }
   });
