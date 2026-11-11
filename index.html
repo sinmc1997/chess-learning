@@ -24,7 +24,8 @@ h1{margin:8px 0 0;font-size:1.6rem}h2{margin:.2em 0}h3{margin:20px 0 8px;font-si
 .lnk{color:var(--acc);text-decoration:none;margin-left:auto}
 .prompt{font-size:1.08rem;font-weight:600;margin-bottom:8px}
 .visual{text-align:center;margin:10px 0}
-.big{font-size:88px;line-height:1.2}
+.big{font-size:clamp(44px,16vw,88px);line-height:1.2}
+.timer{font-size:1.4rem;text-align:right;color:var(--warn)}.timer b{font-size:2rem}
 .pair{display:flex;justify-content:center;gap:18px;align-items:center;font-size:44px}
 .pair .vs{font-size:18px;color:var(--mut)}
 .pitch{width:min(260px,80%);height:auto}
@@ -98,7 +99,7 @@ code{background:rgba(127,127,127,.15);border-radius:4px;padding:1px 6px;font-siz
 <body>
 <div id="app"></div>
 <div id="toast"></div>
-<script src="content.js?v=5"></script>
-<script src="engine.js?v=5"></script>
+<script src="content.js?v=6"></script>
+<script src="engine.js?v=6"></script>
 </body>
 </html>

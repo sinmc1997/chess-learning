@@ -32,6 +32,16 @@ for (const k of SITE.order) {
     if (p.length) report(k, seed, p);
   }
 }
+// 計時挑戰：每個模式正解判啱、亂打判錯
+if (SITE.timed) SITE.timed.modes.forEach(m => {
+  for (let seed = 1; seed <= 500; seed++) {
+    checked++;
+    const q = SITE.timed.makeQ(m.id, seed), p = [];
+    if (!q.word || !q.answerText || typeof q.check !== 'function') p.push('缺 word／answerText／check');
+    else { if (!q.check(q.answerText).ok) p.push('正解判錯'); if (q.check('qqq').ok) p.push('亂打判啱'); }
+    if (p.length) report('timed:' + m.id, seed, p);
+  }
+});
 // 關卡：每關嘅項目都要存在
 (SITE.levels || []).forEach(L => (L.items || []).forEach(k => { if (!SITE.items[k]) report('LEVEL', L.id, ['冇呢個項目 ' + k]); }));
 // 粵拼網站專用：資料一致性

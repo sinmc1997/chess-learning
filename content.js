@@ -123,7 +123,18 @@
     enpassant: diag([P2('e5', 'P'), P2('d5', 'p')], M({ e5: 'from', d5: 'hit', d6: 'dot' }),
       '黑兵啱啱由 d7 一步行兩格到 d5，停喺白兵（e5）隔籬：白兵下一步可以斜行去 d6，吃走 d5 嘅黑兵。'),
     principle: diag([P2('e4', 'P'), P2('f3', 'N'), P2('c3', 'N'), P2('c4', 'B'), P2('g1', 'K'), P2('f1', 'R')], M({ d4: 'dot', d5: 'dot', e5: 'dot', e4: 'from' }),
-      '開局：兵佔中心（e4，綠點係其他中心格）、出馬（c3、f3）、出象（c4）、王車易位（王去咗 g1）。')
+      '開局：兵佔中心（e4，綠點係其他中心格）、出馬（c3、f3）、出象（c4）、王車易位（王去咗 g1）。'),
+    qmate: diag([P2('h7', 'Q'), P2('e6', 'K'), P2('e8', 'k')], M({ h7: 'from', e7: 'dot', e8: 'hit' }),
+      '「死亡之吻」：白后由 h7 行去 e7（綠點）貼身將軍，有白王 e6 保護。黑王吃唔到后，d8、f8、d7、f7 全部被控制 → 將死。'),
+    nmate: diag([P2('g5', 'N'), P2('h8', 'k'), P2('g8', 'r'), P2('g7', 'p'), P2('h7', 'p'), P2('g1', 'K')], M({ g5: 'from', f7: 'dot', h8: 'hit' }),
+      '悶殺：黑王 h8 被自己嘅車（g8）同兵（g7、h7）塞死。白馬跳去 f7（綠點）將軍，擋唔到、走唔到、吃唔到 → 將死。'),
+    opposition: diag([P2('e4', 'K'), P2('e6', 'k')], M({ e4: 'from', e5: 'dot', e6: 'hit' }),
+      '直接對立：白王 e4、黑王 e6，同一直線中間隔一格（e5）。如果輪到黑方行，黑王唔可以行 e5，只可以讓路。'),
+    square: diag([P2('c4', 'P'), P2('f6', 'k')], M({ c4: 'from', c5: 'dot', c6: 'dot', c7: 'dot', c8: 'dot', d4: 'dot', d5: 'dot', d6: 'dot', d7: 'dot', d8: 'dot',
+      e4: 'dot', e5: 'dot', e6: 'dot', e7: 'dot', e8: 'dot', f4: 'dot', f5: 'dot', f7: 'dot', f8: 'dot', g4: 'dot', g5: 'dot', g6: 'dot', g7: 'dot', g8: 'dot', f6: 'hit' }),
+      '白兵 c4 要行 4 步先到 c8。由 c4 畫一個 5×5 正方形（c4–g4–g8–c8，綠點）。黑王 f6 喺方格入面 → 追得到。白先行時黑王要已經喺方格入面；黑先行就只要行一步入到方格。'),
+    kpk: diag([P2('e5', 'P'), P2('e4', 'K'), P2('e8', 'k')], M({ e5: 'from', d6: 'dot', e6: 'dot', f6: 'dot', d7: 'dot', e7: 'dot', f7: 'dot' }),
+      '白兵 e5 嘅關鍵格（綠點）：d6、e6、f6、d7、e7、f7。白王行到其中一格，唔理邊個先行都贏；黑王守住呢啲格就有機會和。')
   };
 
   // ---------- 生成器：走法（一步可以去邊格） ----------
@@ -286,6 +297,328 @@
     };
   }
 
+  // ---------- 迷你規則引擎（一步殺用）----------
+  // 棋盤：長度 64 陣列，index = r*8+f；大寫＝白、細寫＝黑、'' ＝空。唔計易位同吃過路兵（題目用唔著）。
+  function I(f, r) { return r * 8 + f; }
+  function isW(p) { return !!p && p === p.toUpperCase(); }
+  function sqName(s) { return sqn(s % 8, s >> 3); }
+  function emptyBoard() { var b = []; for (var i = 0; i < 64; i++) b.push(''); return b; }
+  function toPcs(b) { var o = []; for (var s = 0; s < 64; s++) if (b[s]) o.push({ f: s % 8, r: s >> 3, p: b[s] }); return o; }
+  // (f, r) 有冇被 white 方攻擊
+  function attackedBy(b, f, r, white) {
+    var i, d, x, y;
+    for (i = 0; i < 8; i++) { d = DIRS.N[i]; x = f + d[0]; y = r + d[1]; if (inB(x, y) && b[I(x, y)] === (white ? 'N' : 'n')) return true; }
+    for (i = 0; i < 8; i++) { d = DIRS.K[i]; x = f + d[0]; y = r + d[1]; if (inB(x, y) && b[I(x, y)] === (white ? 'K' : 'k')) return true; }
+    var py = white ? r - 1 : r + 1, pp = white ? 'P' : 'p';
+    if (inB(f - 1, py) && b[I(f - 1, py)] === pp) return true;
+    if (inB(f + 1, py) && b[I(f + 1, py)] === pp) return true;
+    for (i = 0; i < 8; i++) {
+      d = DIRS.Q[i];
+      var straight = d[0] === 0 || d[1] === 0;
+      x = f + d[0]; y = r + d[1];
+      while (inB(x, y)) {
+        var q = b[I(x, y)];
+        if (q) {
+          if (isW(q) === white) { var u = q.toUpperCase(); if (u === 'Q' || (straight ? u === 'R' : u === 'B')) return true; }
+          break;
+        }
+        x += d[0]; y += d[1];
+      }
+    }
+    return false;
+  }
+  function pseudo(b, white) {
+    var out = [];
+    for (var s = 0; s < 64; s++) {
+      var p = b[s];
+      if (!p || isW(p) !== white) continue;
+      var f = s % 8, r = s >> 3, u = p.toUpperCase();
+      if (u === 'P') {
+        var dy = white ? 1 : -1, y1 = r + dy;
+        if (inB(f, y1) && !b[I(f, y1)]) {
+          out.push([s, I(f, y1)]);
+          if (r === (white ? 1 : 6) && !b[I(f, r + 2 * dy)]) out.push([s, I(f, r + 2 * dy)]);
+        }
+        for (var dx = -1; dx <= 1; dx += 2) {
+          var cx = f + dx;
+          if (inB(cx, y1) && b[I(cx, y1)] && isW(b[I(cx, y1)]) !== white) out.push([s, I(cx, y1)]);
+        }
+        continue;
+      }
+      var slide = u === 'R' || u === 'B' || u === 'Q';
+      for (var k = 0; k < DIRS[u].length; k++) {
+        var d = DIRS[u][k], x = f + d[0], y = r + d[1];
+        while (inB(x, y)) {
+          var t = b[I(x, y)];
+          if (t && isW(t) === white) break;
+          out.push([s, I(x, y)]);
+          if (t || !slide) break;
+          x += d[0]; y += d[1];
+        }
+      }
+    }
+    return out;
+  }
+  function applyMove(b, m) {
+    var nb = b.slice(), p = nb[m[0]];
+    nb[m[1]] = p; nb[m[0]] = '';
+    if (p === 'P' && m[1] >> 3 === 7) nb[m[1]] = 'Q';
+    if (p === 'p' && m[1] >> 3 === 0) nb[m[1]] = 'q';
+    return nb;
+  }
+  function inCheck(b, white) { var k = b.indexOf(white ? 'K' : 'k'); return attackedBy(b, k % 8, k >> 3, !white); }
+  function legalMoves(b, white) { return pseudo(b, white).filter(function (m) { return !inCheck(applyMove(b, m), white); }); }
+  function isMated(b, white) { return inCheck(b, white) && legalMoves(b, white).length === 0; }
+
+  // ---------- 生成器：一步殺（后殺／馬殺）----------
+  // 隨機擺：黑王靠邊、身邊有自己嘅棋；白方王＋主角（后或馬）＋一粒幫手。
+  // 條件：主角剛好得 1 步將死，另外至少 3 步唔係將死（錯選項盡量揀「將軍但唔係將死」）。
+  function genMate1(X) {
+    var HELP = X === 'Q' ? ['', 'R', 'B', 'N', 'P', ''] : ['Q', 'R', 'B', '', 'Q', 'R'];
+    return function (rng) {
+      for (var tries = 0; tries < 20000; tries++) {
+        var b = emptyBoard(), kf, kr;
+        if (rng() < 0.7) { kf = util.int(rng, 0, 7); kr = rng() < 0.8 ? 7 : 6; }
+        else { kf = rng() < 0.5 ? 0 : 7; kr = util.int(rng, 2, 7); }
+        b[I(kf, kr)] = 'k';
+        var extra = 0;
+        DIRS.K.forEach(function (d) {
+          var x = kf + d[0], y = kr + d[1];
+          if (!inB(x, y) || rng() > (X === 'N' ? 0.5 : 0.35)) return;
+          if (y >= 1 && y <= 6 && y <= kr && rng() < 0.75) b[I(x, y)] = 'p';
+          else if (extra < 2) { b[I(x, y)] = util.pick(rng, ['r', 'b', 'n']); extra++; }
+        });
+        var put = function (p, ok) {
+          for (var t = 0; t < 30; t++) {
+            var x = util.int(rng, 0, 7), y = util.int(rng, 0, 7);
+            if (b[I(x, y)] || (ok && !ok(x, y))) continue;
+            b[I(x, y)] = p; return true;
+          }
+          return false;
+        };
+        if (!put('K', function (x, y) { return Math.max(Math.abs(x - kf), Math.abs(y - kr)) >= 2; })) continue;
+        if (!put(X)) continue;
+        var hp = util.pick(rng, HELP);
+        if (hp && !put(hp, hp === 'P' ? function (x, y) { return y >= 1 && y <= 6; } : null)) continue;
+        if (inCheck(b, false) || inCheck(b, true)) continue;
+        var mine = legalMoves(b, true).filter(function (m) { return b[m[0]] === X; });
+        var mates = [], checks = [], quiet = [];
+        mine.forEach(function (m) {
+          var nb = applyMove(b, m);
+          if (!inCheck(nb, false)) quiet.push(m);
+          else if (legalMoves(nb, false).length === 0) mates.push(m);
+          else checks.push(m);
+        });
+        if (mates.length !== 1 || checks.length + quiet.length < 3) continue;
+        var lbl = function (m) { return NAME[X] + ' → ' + sqName(m[1]) + (b[m[1]] ? '（吃' + NAME[b[m[1]].toUpperCase()] + '）' : ''); };
+        var bad = util.shuffle(checks, rng).slice(0, 2);
+        bad = bad.concat(util.shuffle(quiet, rng).slice(0, 3 - bad.length));
+        if (bad.length < 3) bad = bad.concat(util.shuffle(checks.slice(2), rng).slice(0, 3 - bad.length));
+        var key = X === 'Q' ? 'qmate' : 'nmate';
+        var good = lbl(mates[0]);
+        return {
+          prompt: '白先行。白' + NAME[X] + '一步將死黑王，應該行去邊格？',
+          visual: boardHtml(toPcs(b)),
+          options: [{ t: good, ok: true, k: key }].concat(bad.map(function (m) { return { t: lbl(m), ok: false, k: key }; })),
+          expl: good + '：將軍之後，黑王冇格走、冇棋擋得住、亦冇棋吃得到 → 將死。' +
+            (X === 'Q' ? '后貼身將軍要有保護（王、馬、象…），否則黑王會吃咗佢。' : '馬嘅將軍擋唔到（佢係跳），黑王身邊嘅格多數被自己嘅棋塞住。') +
+            '其他走法：唔係將軍，或者黑王仲可以走、擋或者吃。'
+        };
+      }
+      throw new Error('genMate1: 搵唔到合適局面');
+    };
+  }
+
+  // ---------- 生成器：王嘅對立（Opposition）----------
+  function genOpposition(rng) {
+    for (var tries = 0; tries < 2000; tries++) {
+      var bf = util.int(rng, 0, 7), br = util.int(rng, 1, 6), wf = util.int(rng, 0, 7), wr = util.int(rng, 0, 7);
+      var cheb = function (f, r) { return Math.max(Math.abs(f - bf), Math.abs(r - br)); };
+      var opp = function (f, r) { return (f === bf && Math.abs(r - br) === 2) || (r === br && Math.abs(f - bf) === 2); };
+      if (cheb(wf, wr) < 2 || opp(wf, wr)) continue;
+      var moves = reach('K', wf, wr).filter(function (t) { return cheb(t[0], t[1]) >= 2; });
+      var good = moves.filter(function (t) { return opp(t[0], t[1]); });
+      var bad = moves.filter(function (t) { return !opp(t[0], t[1]); });
+      if (good.length !== 1 || bad.length < 3) continue;
+      var g = good[0], mid = g[0] === bf ? sqn(bf, (g[1] + br) / 2) : sqn((g[0] + bf) / 2, br);
+      return {
+        prompt: '白先行。白王一步行去邊格，可以同黑王形成「直接對立」？',
+        visual: boardHtml([{ f: wf, r: wr, p: 'K' }, { f: bf, r: br, p: 'k' }]),
+        options: [{ t: '王 → ' + sqn(g[0], g[1]), ok: true, k: 'opposition' }].concat(util.shuffle(bad, rng).slice(0, 3).map(function (t) {
+          return { t: '王 → ' + sqn(t[0], t[1]), ok: false, k: 'opposition' };
+        })),
+        expl: '王 → ' + sqn(g[0], g[1]) + '：同黑王喺同一直線（或橫線），中間隔住 ' + mid + ' 一格＝直接對立。' +
+          '輪到黑方行，佢唔可以行入 ' + mid + '（貼住白王），只可以讓路。'
+      };
+    }
+    throw new Error('genOpposition: 搵唔到');
+  }
+
+  // ---------- 生成器：方格法則（Rule of the square）----------
+  // 兵要行 d 步先升變（起始排可以行兩格，當佢喺第 3 排計）。
+  // 方格＝由兵到底線嘅正方形（邊長 d+1 格）。白先行：黑王要已經喺方格入面（到升變格 ≤ d 步）；
+  // 黑先行：黑王行一步入到方格就得（≤ d+1 步）。候選格只用兵前面、唔貼住兵嘅格（貼住可以直接吃）。
+  function squareInfo(pf, pr, wtm) {
+    var d = pr === 1 ? 5 : 7 - pr;
+    return { d: d, need: wtm ? d : d + 1, qsq: sqn(pf, 7) };
+  }
+  function genSquare(rng) {
+    for (var tries = 0; tries < 2000; tries++) {
+      var pf = util.int(rng, 0, 7), pr = util.int(rng, 1, 5), wtm = rng() < 0.35;
+      var S = squareInfo(pf, pr, wtm);
+      var inS = [], outS = [];
+      for (var x = 0; x < 8; x++) for (var y = 0; y < 8; y++) {
+        if (y <= pr || Math.max(Math.abs(x - pf), Math.abs(y - pr)) <= 1) continue; // 只要兵前面、唔貼住兵
+        var dist = Math.max(Math.abs(x - pf), 7 - y);
+        if (dist === S.need || dist === S.need - 1) inS.push([x, y, dist]);
+        else if (dist === S.need + 1 || dist === S.need + 2) outS.push([x, y, dist]);
+      }
+      if (!inS.length || outS.length < 3) continue;
+      var g = util.pick(rng, inS), bad = util.shuffle(outS, rng).slice(0, 3), marks = {};
+      [g].concat(bad).forEach(function (t) { marks[sqn(t[0], t[1])] = 'dot'; });
+      var ps = sqn(pf, pr), gs = sqn(g[0], g[1]);
+      return {
+        prompt: (wtm ? '白先行' : '黑先行') + '。白兵喺 ' + ps + '，黑王要追佢。黑王喺邊一格（綠點）先追得到，唔俾兵升變？',
+        visual: boardHtml([{ f: pf, r: pr, p: 'P' }], marks),
+        options: [{ t: '黑王喺 ' + gs, ok: true, k: 'square' }].concat(bad.map(function (t) {
+          return { t: '黑王喺 ' + sqn(t[0], t[1]), ok: false, k: 'square' };
+        })),
+        expl: '白兵要行 ' + S.d + ' 步先到 ' + S.qsq + (pr === 1 ? '（起始排可以行兩格，當佢喺第 3 排計）' : '') +
+          '。由兵畫一個正方形去到底線（' + (S.d + 1) + '×' + (S.d + 1) + ' 格）：' +
+          (wtm ? '白先行，黑王要已經喺方格入面' : '黑先行，黑王行一步入到方格就得') +
+          '（離升變格 ≤ ' + S.need + ' 步）。' + gs + ' 離 ' + S.qsq + ' 係 ' + g[2] + ' 步，追得到；其他三格要 ' + (S.need + 1) + ' 步或以上，追唔到。'
+      };
+    }
+    throw new Error('genSquare: 搵唔到');
+  }
+
+  // ---------- 王兵對王（KPK）完整解：一次過計晒所有局面 ----------
+  // W[i]／B[i] ＝ 1：白先行／黑先行，白方贏。i = (wk*64 + bk)*64 + p。
+  var KPK = null;
+  function cheb2(a, b) { return Math.max(Math.abs(a % 8 - b % 8), Math.abs((a >> 3) - (b >> 3))); }
+  function pawnAtt(p, s) { return (s >> 3) === (p >> 3) + 1 && Math.abs(s % 8 - p % 8) === 1; }
+  function kpkSolve() {
+    if (KPK) return KPK;
+    var KM = [];
+    for (var s = 0; s < 64; s++) {
+      KM.push(reach('K', s % 8, s >> 3).map(function (t) { return I(t[0], t[1]); }));
+    }
+    // 升變之後（黑先行）：后或車有一樣唔會即刻被吃、又唔係困斃 ＝ 贏
+    function lineHit(q, t, wk, straightOnly) {
+      var dx = t % 8 - q % 8, dy = (t >> 3) - (q >> 3);
+      if (!dx && !dy) return false;
+      var line = !dx || !dy, diag = Math.abs(dx) === Math.abs(dy);
+      if (!(line || (!straightOnly && diag))) return false;
+      var sx = Math.sign(dx), sy = Math.sign(dy), x = q % 8 + sx, y = (q >> 3) + sy;
+      while (x !== t % 8 || y !== t >> 3) { if (I(x, y) === wk) return false; x += sx; y += sy; }
+      return true;
+    }
+    function promoWin(wk, bk, q) {
+      if (cheb2(bk, q) === 1 && cheb2(wk, q) > 1) return false; // 黑王吃咗新后／車
+      for (var k = 0; k < 2; k++) {
+        var ro = k === 1, chk = lineHit(q, bk, wk, ro), mv = false;
+        for (var j = 0; j < KM[bk].length && !mv; j++) {
+          var t = KM[bk][j];
+          if (t === q || cheb2(t, wk) <= 1 || lineHit(q, t, wk, ro)) continue;
+          mv = true;
+        }
+        if (mv || chk) return true;
+      }
+      return false;
+    }
+    var N = 262144, W = new Uint8Array(N), B = new Uint8Array(N), OK = new Uint8Array(N);
+    for (var wk = 0; wk < 64; wk++) for (var bk = 0; bk < 64; bk++) for (var p = 8; p < 56; p++) {
+      if (wk !== bk && wk !== p && bk !== p && cheb2(wk, bk) > 1) OK[(wk * 64 + bk) * 64 + p] = 1;
+    }
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (var i = 0; i < N; i++) {
+        if (!OK[i]) continue;
+        p = i & 63; bk = (i >> 6) & 63; wk = i >> 12;
+        var j, t;
+        if (!W[i] && !pawnAtt(p, bk)) {
+          var win = false;
+          for (j = 0; j < KM[wk].length && !win; j++) {
+            t = KM[wk][j];
+            if (t !== p && cheb2(t, bk) > 1 && B[(t * 64 + bk) * 64 + p]) win = true;
+          }
+          var p1 = p + 8;
+          if (!win && p1 !== wk && p1 !== bk) {
+            if (p1 >> 3 === 7) win = promoWin(wk, bk, p1);
+            else if (B[(wk * 64 + bk) * 64 + p1]) win = true;
+            if (!win && p >> 3 === 1 && p + 16 !== wk && p + 16 !== bk && B[(wk * 64 + bk) * 64 + p + 16]) win = true;
+          }
+          if (win) { W[i] = 1; changed = true; }
+        }
+        if (!B[i]) {
+          var any = false, all = true;
+          for (j = 0; j < KM[bk].length && all; j++) {
+            t = KM[bk][j];
+            if (cheb2(t, wk) <= 1 || pawnAtt(p, t)) continue;
+            any = true;
+            if (t === p || !W[(wk * 64 + t) * 64 + p]) all = false;
+          }
+          if ((any && all) || (!any && pawnAtt(p, bk))) { B[i] = 1; changed = true; }
+        }
+      }
+    }
+    KPK = { W: W, B: B, OK: OK, KM: KM, promoWin: promoWin };
+    return KPK;
+  }
+  // 白先行嘅所有走法同結果
+  function kpkMoves(wk, bk, p) {
+    var T = kpkSolve(), out = [];
+    T.KM[wk].forEach(function (t) {
+      if (t !== p && cheb2(t, bk) > 1) out.push({ t: '王 → ' + sqName(t), win: !!T.B[(t * 64 + bk) * 64 + p], king: t });
+    });
+    var p1 = p + 8;
+    if (p1 !== wk && p1 !== bk) {
+      out.push({ t: '兵 → ' + sqName(p1), win: p1 >> 3 === 7 ? T.promoWin(wk, bk, p1) : !!T.B[(wk * 64 + bk) * 64 + p1], pawn: p1 });
+      if (p >> 3 === 1 && p + 16 !== wk && p + 16 !== bk) out.push({ t: '兵 → ' + sqName(p + 16), win: !!T.B[(wk * 64 + bk) * 64 + p + 16], pawn: p + 16 });
+    }
+    return out;
+  }
+  // 關鍵格（非車線兵）：白王行到其中一格，唔理邊個先行都贏
+  function keySquares(p) {
+    var f = p % 8, r = p >> 3, out = [], rows = r <= 3 ? [r + 2] : r <= 5 ? [r + 1, r + 2] : [r, r + 1];
+    rows.forEach(function (y) {
+      for (var x = f - 1; x <= f + 1; x++) if (inB(x, y) && !(y === r && x === f)) out.push(I(x, y));
+    });
+    return out;
+  }
+  function genKPK(rng) {
+    var T = kpkSolve();
+    for (var tries = 0; tries < 5000; tries++) {
+      var pf = util.int(rng, 1, 6), pr = util.int(rng, 1, 4);
+      var wf = pf + util.int(rng, -2, 2), wr = pr + util.int(rng, -1, 2), bf = pf + util.int(rng, -2, 2), br = pr + util.int(rng, 2, 4);
+      if (!inB(wf, wr) || !inB(bf, br)) continue;
+      var p = I(pf, pr), wk = I(wf, wr), bk = I(bf, br);
+      if (!T.OK[(wk * 64 + bk) * 64 + p] || pawnAtt(p, bk)) continue;
+      var mv = kpkMoves(wk, bk, p), wins = mv.filter(function (m) { return m.win; }), rest = mv.filter(function (m) { return !m.win; });
+      if (wins.length !== 1 || rest.length < 3) continue;
+      var g = wins[0], why;
+      if (g.king != null && ((g.king % 8 === bk % 8 && Math.abs((g.king >> 3) - (bk >> 3)) === 2) || ((g.king >> 3) === (bk >> 3) && Math.abs(g.king % 8 - bk % 8) === 2))) {
+        why = '白王同黑王形成直接對立（中間隔一格），輪到黑方要讓路，白王就可以行到關鍵格。';
+      } else if (g.king != null && keySquares(p).indexOf(g.king) >= 0) {
+        why = '白王行到「關鍵格」（兵前面兩排嘅格），之後唔理點行都護送到兵升變。';
+      } else if (g.king != null && (g.king >> 3) > pr && (g.king >> 3) > (wk >> 3)) {
+        why = '白王向前行到兵前面搶位（王行先、兵跟後），黑王就擋唔住。';
+      } else if (g.pawn != null) {
+        why = '呢度要推兵：白王已經控制好前面嘅格，推兵先保持對立或者令黑王追唔切。';
+      } else {
+        why = '呢步可以搶到更好嘅王位，之後取得對立或者佔關鍵格。';
+      }
+      return {
+        prompt: '王兵殘局，白先行。邊一步先可以贏？（其他走法黑方都守得住，變和棋）',
+        visual: boardHtml([{ f: pf, r: pr, p: 'P' }, { f: wf, r: wr, p: 'K' }, { f: bf, r: br, p: 'k' }]),
+        options: [{ t: g.t, ok: true, k: 'kpk' }].concat(util.shuffle(rest, rng).slice(0, 3).map(function (m) { return { t: m.t, ok: false, k: 'kpk' }; })),
+        expl: g.t + '：' + why + '（答案由完整殘局表計出：其他走法黑方都可以和棋。）'
+      };
+    }
+    throw new Error('genKPK: 搵唔到');
+  }
+
   // ---------- 概念題庫（文字題） ----------
   var QB = [
     { k: 'rook', q: '車（Rook）嘅走法係？', c: '直線（橫或直），任意格數，唔可以越過其他棋子',
@@ -323,7 +656,18 @@
     { k: 'check', q: '被將軍之後，可以點應對？', c: '走王避開、用棋擋住、或者吃掉將軍嗰粒棋',
       w: ['可以唔理，繼續行其他棋', '只可以王車易位', '一定要用后吃返對方'], e: '三種方法：走、擋、吃。三樣都做唔到就係將死。' },
     { k: 'value', q: '一般子力價值，以下邊個最準？', c: '后 9、車 5、象 3、馬 3、兵 1',
-      w: ['后 5、車 9、象 3、馬 3、兵 1', '后 9、車 3、象 5、馬 5、兵 1', '全部棋子價值一樣'], e: '用價值判斷交換值唔值得，例如用馬換車係賺 2 分。' }
+      w: ['后 5、車 9、象 3、馬 3、兵 1', '后 9、車 3、象 5、馬 5、兵 1', '全部棋子價值一樣'], e: '用價值判斷交換值唔值得，例如用馬換車係賺 2 分。' },
+    // 17–21：殘局、一步殺
+    { k: 'opposition', q: '殘局入面「直接對立」係指？', c: '兩個王喺同一直線或橫線，中間隔一格；輪到對方行，佢就要讓路',
+      w: ['兩個王喺同一斜線，貼住對方', '兩個王喺棋盤兩邊角落', '王同兵喺同一直線'], e: '王唔可以貼住王，所以「對立」時先要行嗰方一定要退或者橫行讓路。' },
+    { k: 'square', q: '「方格法則」用嚟判斷乜嘢？', c: '冇其他棋幫手時，對方王追唔追到你嘅兵（唔俾佢升變）',
+      w: ['馬幾多步可以去到某格', '象係咪控制到一條斜線', '王車易位合唔合法'], e: '由兵畫正方形去到底線：對方王（輪到佢行）喺方格入面就追得到。' },
+    { k: 'kpk', q: '王兵對王，白方想贏，最重要係？', c: '白王行喺兵前面、搶佔關鍵格，用對立逼黑王讓路',
+      w: ['白王留喺兵後面，淨係推兵', '一開始就推兵，越快越好', '白王越遠離兵越好'], e: '王行先、兵跟後：王喺兵前面兩格（關鍵格）通常就贏；兵喺 a、h 線多數和棋。' },
+    { k: 'qmate', q: '用后貼身將軍黑王（例如「死亡之吻」），點先算將死？', c: '后要有保護（王或其他棋），黑王吃唔到；而且黑王旁邊冇格逃',
+      w: ['后貼住黑王就一定係將死', '后同黑王隔得越遠越好', '后將軍一定要喺第 8 排'], e: '無保護嘅后一貼身就會被黑王吃，要有王或者其他棋喺後面撐住。' },
+    { k: 'nmate', q: '「悶殺」（Smothered mate）係乜嘢？', c: '黑王被自己嘅棋包圍冇格走，馬一將軍就擋唔到、走唔到 → 將死',
+      w: ['用兩粒車輪流將軍', '王喺中間被后同車夾死', '兵升變做馬之後即刻贏'], e: '經典例子：黑王 h8、車 g8、兵 g7 h7，白馬跳去 f7 將死。' }
   ];
   function genConcept(i) {
     return function () {
@@ -390,7 +734,27 @@
       fail: '以為只可以變返被吃咗嘅棋', tip: '殘局數兵：邊個先升變通常就贏。', gens: [genConcept(12)] },
     enpassant: { name: '吃過路兵（En passant）', cat: '特殊規則', mn: '對方兵行兩格擦身而過 → 下一步即刻斜吃',
       features: ['只限兵吃兵', '對方兵由起始排行兩格', '只可以喺下一步做'], principle: '防止兵行兩格避開對方兵',
-      fail: '過咗一步先記起，已經唔得', tip: '你嘅兵要喺第 5 排（白）先有機會。', gens: [genConcept(13)] }
+      fail: '過咗一步先記起，已經唔得', tip: '你嘅兵要喺第 5 排（白）先有機會。', gens: [genConcept(13)] },
+    qmate: { name: '后殺（一步殺）', cat: '一步殺', mn: '后貼身將軍＋有保護 → 將死',
+      features: ['后可以控制好多格，黑王身邊嘅格一次封晒', '貼身將軍要有王或者其他棋保護', '先睇黑王有邊幾格可以逃'],
+      principle: '將軍 → 再數逃生格、擋、吃三條路', fail: '后貼身但冇保護，被黑王吃咗',
+      tip: '每次先數黑王身邊 8 格，再搵一步可以全部封住嘅將軍。', gens: [genMate1('Q'), genMate1('Q'), genConcept(20)] },
+    nmate: { name: '馬殺（一步殺）', cat: '一步殺', mn: '黑王被自己嘅棋塞住 → 馬一將就死',
+      features: ['馬嘅將軍擋唔到（佢係跳）', '黑王身邊塞滿自己嘅棋最危險（悶殺）', '通常要其他棋封住剩低嘅格'],
+      principle: '馬將軍只可以靠走王或者吃馬解決', fail: '淨係睇住后同車，冇留意馬跳嘅格',
+      tip: '見到黑王身邊塞滿自己嘅棋，就諗下馬可以跳去邊度將軍。', gens: [genMate1('N'), genMate1('N'), genConcept(21)] },
+    opposition: { name: '王嘅對立（Opposition）', cat: '殘局', mn: '兩王同一線，中間隔一格 → 先行嗰方要讓路',
+      features: ['同一直線或橫線，中間隔一格', '輪到對方行先叫「取得對立」', '王兵殘局嘅基本功'],
+      principle: '王唔可以貼住王，所以對立時對方只可以退或者橫行', fail: '自己行入對立但輪到自己行（失咗對立）',
+      tip: '數格：兩王之間隔單數格、輪到對方行，就係你有對立。', gens: [genOpposition, genOpposition, genConcept(17)] },
+    square: { name: '方格法則（Rule of the square）', cat: '殘局', mn: '由兵畫正方形到底線：王喺入面就追得到',
+      features: ['方格邊長＝兵升變要行嘅步數', '兵喺起始排：當佢喺第 3 排計（可以行兩格）', '白先行：黑王要已經喺方格入面；黑先行：行一步入到方格就得'],
+      principle: '王同兵一齊數步數，唔使逐步計', fail: '忘記兵喺起始排可以行兩格',
+      tip: '唔肯定就數：黑王到升變格要幾多步，同兵要幾多步比較。', gens: [genSquare, genSquare, genConcept(18)] },
+    kpk: { name: '王兵殘局（王兵對王）', cat: '殘局', mn: '王行先、兵跟後；搶關鍵格、用對立',
+      features: ['白王喺兵前面兩格（關鍵格）通常就贏', '用對立逼黑王讓路', '兵喺 a、h 線多數和棋'],
+      principle: '黑王守住兵前面就和；白王搶到前面就贏', fail: '一開始就推兵，黑王擋喺前面變和棋',
+      tip: '答案由完整殘局表計出，唔係估：多做幾題就會睇到「對立」出現好多次。', gens: [genKPK, genKPK, genConcept(19)] }
   };
 
   // ---------- 關卡 ----------
@@ -406,7 +770,10 @@
     { id: 'C9', name: '牽制同串擊', desc: '前細後大／前大後細', items: ['pin', 'skewer'], n: 8 },
     { id: 'C10', name: '一步殺', desc: '底線將死、將死', items: ['backrank', 'mate'], n: 8 },
     { id: 'C11', name: '規則同開局', desc: '易位、升變、過路兵、開局原則', items: ['castle', 'promote', 'enpassant', 'principle'], n: 8 },
-    { id: 'C12', name: '畢業考', desc: '全部混合', items: null, n: 15 }
+    { id: 'C12', name: '后殺同馬殺', desc: '一步將死：后貼身、悶殺', items: ['qmate', 'nmate'], n: 8 },
+    { id: 'C13', name: '殘局：對立同方格', desc: '王嘅對立、方格法則', items: ['opposition', 'square'], n: 8 },
+    { id: 'C14', name: '王兵殘局', desc: '搵唯一贏棋嘅一步', items: ['kpk'], n: 8 },
+    { id: 'C15', name: '畢業考', desc: '全部混合', items: null, n: 15 }
   ];
 
   // ---------- 出題（確定性） ----------
@@ -429,7 +796,8 @@
     order: Object.keys(ITEMS),
     labels: {},
     levels: LEVELS,
-    makeQ: makeQ
+    makeQ: makeQ,
+    _chess: { kpkSolve: kpkSolve, kpkMoves: kpkMoves, keySquares: keySquares, I: I }
   };
   LEVELS[LEVELS.length - 1].items = SITE.order;
   SITE.order.forEach(function (k) { if (DIAG[k]) ITEMS[k].diagram = DIAG[k]; });

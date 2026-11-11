@@ -10,7 +10,7 @@
 
   // ---------- 儲存 ----------
   function fresh() {
-    return { cards: {}, rating: {}, conf: {}, mistakes: [], learned: {}, hist: [], days: [], levels: {}, saved: '' };
+    return { cards: {}, rating: {}, conf: {}, mistakes: [], learned: {}, hist: [], days: [], levels: {}, timed: {}, saved: '' };
   }
   function load() {
     try {
@@ -203,6 +203,107 @@
     render();
   }
   function next() { if (R) { R.i++; R.sel = null; R.answered = false; R.lastM = null; R.requeued = false; R.t0 = 0; R.typed = ''; R.note = ''; render(); } }
+
+  // ---------- 計時挑戰（content 有 SITE.timed 先出現） ----------
+  // SITE.timed = { title, desc, seconds, modes:[{id,name,desc}], makeQ(mode, seed) → 打字題（有 word、answerText、check） }
+  var T = null, tTimer = null;
+  function timedRec(id) { S.timed = S.timed || {}; return S.timed[id] || { best: 0, tries: 0, hist: [] }; }
+  function timedMenu() {
+    var TD = SITE.timed;
+    var h = '<div class="bar"><a href="#" class="lnk" data-act="home">← 主頁</a></div><h2>' + esc(TD.title) + '</h2>' +
+      '<p class="muted">' + TD.seconds + ' 秒內打得幾多個就幾多個。打完撳 Enter；打錯會顯示正解，直接跳去下一個。</p><div class="grid">';
+    TD.modes.forEach(function (m) {
+      var r = timedRec(m.id);
+      h += '<button class="tile" data-act="timedGo" data-arg="' + m.id + '"><b>' + esc(m.name) + '</b><span>' + esc(m.desc) + '</span>' +
+        '<span class="stars">最佳 ' + r.best + ' 個' + (r.tries ? '　玩咗 ' + r.tries + ' 次' : '') + '</span></button>';
+    });
+    h += '</div>';
+    var all = [];
+    TD.modes.forEach(function (m) { timedRec(m.id).hist.forEach(function (x) { all.push({ m: m.name, x: x }); }); });
+    all.sort(function (a, b) { return b.x.t - a.x.t; });
+    if (all.length) {
+      h += '<h3>最近成績</h3><div class="scroll"><table><tr><th>日期</th><th>模式</th><th>啱</th><th>錯</th><th>每分鐘</th></tr>' +
+        all.slice(0, 10).map(function (a) {
+          return '<tr><td>' + new Date(a.x.t).toLocaleDateString() + '</td><td>' + esc(a.m) + '</td><td>' + a.x.ok + '</td><td>' + a.x.bad +
+            '</td><td>' + (a.x.cpm != null ? a.x.cpm + ' 字' : '—') + '</td></tr>';
+        }).join('') + '</table></div>';
+    }
+    view(h);
+  }
+  function stopTimer() { if (tTimer) { clearInterval(tTimer); tTimer = null; } }
+  function timedStart(mode) {
+    var TD = SITE.timed;
+    stopTimer();
+    R = null;
+    T = { mode: mode, end: Date.now() + TD.seconds * 1000, t0: Date.now(), ok: 0, bad: 0, chars: 0, done: [], flash: '', last: -1 };
+    timedNext();
+    tTimer = setInterval(timedTick, 200);
+  }
+  function timedNext() {
+    var q;
+    for (var i = 0; i < 5; i++) { q = SITE.timed.makeQ(T.mode, Math.floor(Math.random() * 1e9)); if (q.word !== T.lastWord) break; }
+    T.q = q; T.lastWord = q.word;
+    timedRender();
+  }
+  function timedLeft() { return Math.max(0, Math.ceil((T.end - Date.now()) / 1000)); }
+  function timedTick() {
+    if (!T) return stopTimer();
+    if (Date.now() >= T.end) return timedFinish();
+    var el = document.getElementById('tleft');
+    if (el) el.textContent = timedLeft();
+  }
+  function timedRender() {
+    var q = T.q;
+    var h = '<div class="bar"><span class="pill">' + esc(SITE.timed.title) + '</span><span>✔ ' + T.ok + '　✘ ' + T.bad + '</span>' +
+      '<a href="#" class="lnk" data-act="home">× 離開</a></div>';
+    h += '<div class="card"><div class="timer">⏱ <b id="tleft">' + timedLeft() + '</b> 秒</div>';
+    h += '<div class="prompt">' + esc(q.prompt) + '</div>';
+    if (q.visual) h += '<div class="visual">' + q.visual + '</div>';
+    h += '<div class="row"><input id="ans" class="ans" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"' +
+      ' lang="' + (q.lang || 'en') + '" placeholder="' + esc(q.placeholder || '') + '"></div>' +
+      '<div class="row"><button class="primary" data-act="timedSubmit">提交（Enter）</button><button data-act="timedEnd">提早完成</button></div>';
+    if (T.flash) h += '<div class="badbox">' + T.flash + '</div>';
+    h += '</div>';
+    view(h);
+    var a = document.getElementById('ans'); if (a && a.focus) a.focus();
+  }
+  function timedSubmit() {
+    if (!T) return;
+    if (Date.now() >= T.end) return timedFinish();
+    var el = document.getElementById('ans'), val = el ? String(el.value || '').trim() : '';
+    if (!val) return;
+    var q = T.q, res = q.check(val) || {};
+    T.done.push({ word: q.word, ans: q.answerText, typed: val, ok: !!res.ok });
+    if (res.ok) { T.ok++; T.chars += q.unit || q.word.length; T.flash = ''; }
+    else { T.bad++; T.flash = '✘ 「' + esc(q.word) + '」應該係 <code>' + esc(q.answerText) + '</code>（你打咗 <code>' + esc(val) + '</code>）'; }
+    timedNext();
+  }
+  function timedFinish() {
+    if (!T) return;
+    stopTimer();
+    var TD = SITE.timed, m = TD.modes.filter(function (x) { return x.id === T.mode; })[0] || { name: T.mode };
+    var used = Math.min(TD.seconds * 1000, Math.max(1000, Date.now() - T.t0));
+    var cpm = Math.round(T.chars * 60000 / used);
+    var r = timedRec(T.mode), isBest = T.ok > r.best;
+    r.tries++; if (isBest) r.best = T.ok;
+    r.hist.push({ t: Date.now(), ok: T.ok, bad: T.bad, cpm: cpm });
+    if (r.hist.length > 30) r.hist = r.hist.slice(-30);
+    S.timed[T.mode] = r; touchDay(); save();
+    var n = T.ok + T.bad;
+    var h = '<div class="bar"><a href="#" class="lnk" data-act="timed">← ' + esc(TD.title) + '</a></div><div class="card">';
+    h += '<h2>' + esc(m.name) + '：' + T.ok + ' 個</h2>';
+    h += '<p>' + (isBest ? '🎉 新紀錄！' : '最佳紀錄 ' + r.best + ' 個。') + '　準確率 ' + (n ? pct(T.ok / n) : '—') +
+      '　約 ' + cpm + ' 字／分鐘（只計答啱）' + (used < TD.seconds * 1000 - 500 ? '　（提早完成，用咗 ' + Math.round(used / 1000) + ' 秒）' : '') + '</p>';
+    T.done.forEach(function (d) {
+      if (!d.ok) h += '<div class="rrow bad">✘ ' + esc(d.word) + '　你打：<code>' + esc(d.typed) + '</code>　正解：<code>' + esc(d.ans) + '</code></div>';
+    });
+    var okList = T.done.filter(function (d) { return d.ok; }).map(function (d) { return esc(d.word); });
+    if (okList.length) h += '<p class="muted">✔ ' + okList.join('、') + '</p>';
+    h += '<div class="row"><button class="primary" data-act="timedGo" data-arg="' + T.mode + '">再嚟一次</button>' +
+      '<button data-act="timed">揀模式</button><button data-act="home">返主頁</button></div></div>';
+    T = null;
+    view(h);
+  }
 
   // ---------- 讀音（只喺裝置有粵語語音時顯示） ----------
   function hkVoice() {
@@ -415,6 +516,7 @@
     });
     h += '<h3>練習與工具</h3><div class="grid">' +
       (SITE.levels ? card('levels', '🎮 關卡挑戰', '一關一關過，攞星星') : '') +
+      (SITE.timed ? card('timed', SITE.timed.title, SITE.timed.desc) : '') +
       (SITE.guide ? card('guide', SITE.guideTitle || '📱 教學', SITE.guideDesc || '') : '') +
       card('quiz', '📝 智能練習', '10 題一輪，系統揀最需要練嘅') +
       card('learnList', '📘 學習課程', '示範、要點、主動回憶') +
@@ -462,7 +564,13 @@
     clearTimeout(tT); tT = setTimeout(function () { t.className = ''; }, 1800);
   }
   function act(a, g) {
+    // 計時中撳其他嘢（離開、主頁…）＝放棄今局
+    if (T && a !== 'timedSubmit' && a !== 'timedEnd') { stopTimer(); T = null; }
     switch (a) {
+      case 'timed': timedMenu(); break;
+      case 'timedGo': timedStart(g); break;
+      case 'timedSubmit': timedSubmit(); break;
+      case 'timedEnd': timedFinish(); break;
       case 'home': home(); break;
       case 'quiz': startQuiz(MAXQ); break;
       case 'quizKey': startQuiz(5, g); break;
@@ -506,8 +614,12 @@
     if (e.target && e.target.id === 'imp' && e.target.files && e.target.files[0]) importFile(e.target.files[0]);
   });
   document.addEventListener('keydown', function (e) {
-    if (!R || R.i >= R.qs.length) return;
     if (e.isComposing || e.keyCode === 229) return; // 輸入法揀緊字，唔好當提交
+    if (T) {
+      if (e.key === 'Enter' && e.target.id === 'ans') { e.preventDefault(); timedSubmit(); }
+      return;
+    }
+    if (!R || R.i >= R.qs.length) return;
     var tag = e.target.tagName;
     if (tag === 'TEXTAREA' || tag === 'BUTTON') return;
     if (tag === 'INPUT') {

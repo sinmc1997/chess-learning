@@ -15,7 +15,7 @@ const doc = {
 const ctx = {
   window: {}, document: doc, localStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; } },
   console, Date, Math, JSON, Set, Object, Array, String, Number, Blob: function () {}, URL: { createObjectURL() { return ''; } },
-  confirm: () => true, FileReader: function () {}, setTimeout: () => 0, clearTimeout() {},
+  confirm: () => true, FileReader: function () {}, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
 };
 ctx.window.scrollTo = () => {}; ctx.window.SITE = undefined;
 ctx.globalThis = ctx;
@@ -45,6 +45,13 @@ if (ctx.window.SITE.levels) {
   step('打第 1 關', () => { click('level', ctx.window.SITE.levels[0].id); for (let i = 0; i < 20 && !html.includes('關卡地圖'); i++) { click('choose', '0'); click('submit'); click('next'); } if (!html.includes('第 1 關')) throw new Error('關卡結果頁唔見'); });
 }
 if (ctx.window.SITE.guide) step('教學頁', () => { click('guide'); if (!html.includes('輸入法')) throw new Error('教學頁空'); });
+if (ctx.window.SITE.timed) step('計時挑戰', () => {
+  click('timed'); if (!html.includes('最佳')) throw new Error('冇模式選單');
+  click('timedGo', ctx.window.SITE.timed.modes[0].id); if (!html.includes('tleft')) throw new Error('冇倒數');
+  click('timedSubmit'); click('timedSubmit'); if (!html.includes('應該係')) throw new Error('打錯冇顯示正解');
+  click('timedEnd'); if (!html.includes('再嚟一次')) throw new Error('冇結果頁');
+  click('timedGo', ctx.window.SITE.timed.modes[1].id); click('home'); if (!html.includes('智能建議')) throw new Error('離開失敗');
+});
 // 製造一題錯題再重做
 step('重做錯題', () => { if (ctx.window.SITE) click('quizKey', ctx.window.SITE.order[0]); click('choose', '1'); click('submit'); click('saveSelf'); click('next'); click('mistakes'); click('replay', '0'); });
 const saved = JSON.parse(store[Object.keys(store)[0]]);
