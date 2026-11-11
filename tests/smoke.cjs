@@ -30,8 +30,8 @@ const step = (name, fn) => { try { fn(); if (!html) fails.push(name + ': 空白�
 
 step('首頁', () => { if (!html.includes('智能建議')) throw new Error('缺建議'); });
 step('學習課程', () => click('learnList'));
-step('開課', () => click('learn', 'knight'));
-step('自評', () => click('recall', 'knight|5'));
+step('開課', () => click('learn', ctx.window.SITE.order[2]));
+step('自評', () => click('recall', ctx.window.SITE.order[2] + '|5'));
 step('練習 10 題', () => click('quiz'));
 for (let i = 0; i < 10; i++) {
   step('答題 ' + i, () => { click('choose', '0'); click('submit'); click('next'); });
@@ -41,7 +41,7 @@ step('錯題本', () => click('mistakes'));
 step('統計', () => click('stats'));
 step('返主頁', () => click('home'));
 // 製造一題錯題再重做
-step('重做錯題', () => { if (ctx.window.SITE) click('quizKey', 'rook'); click('choose', '1'); click('submit'); click('saveSelf'); click('next'); click('mistakes'); click('replay', '0'); });
+step('重做錯題', () => { if (ctx.window.SITE) click('quizKey', ctx.window.SITE.order[0]); click('choose', '1'); click('submit'); click('saveSelf'); click('next'); click('mistakes'); click('replay', '0'); });
 const saved = JSON.parse(store[Object.keys(store)[0]]);
 console.log('題數記錄：' + saved.hist.length + '，錯題：' + saved.mistakes.length + '，連續：' + saved.days.length);
 if (fails.length) { console.log('失敗：\n' + fails.join('\n')); process.exit(1); }
