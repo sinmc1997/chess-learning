@@ -77,7 +77,8 @@
       for (var f = 0; f < 8; f++) {
         var p = null;
         for (var i = 0; i < pcs.length; i++) if (pcs[i].f === f && pcs[i].r === r) { p = pcs[i].p; break; }
-        h += '<div class="sq ' + ((f + r) % 2 === 0 ? 'd' : 'l') + '" title="' + sqn(f, r) + '">' + (p ? SYM[p] : '') + '</div>';
+        var coord = (f === 0 ? '<span class="rk">' + (r + 1) + '</span>' : '') + (r === 0 ? '<span class="fl">' + FILES[f] + '</span>' : '');
+        h += '<div class="sq ' + ((f + r) % 2 === 0 ? 'd' : 'l') + '" title="' + sqn(f, r) + '">' + coord + (p ? SYM[p] : '') + '</div>';
       }
     }
     return h + '</div>';
