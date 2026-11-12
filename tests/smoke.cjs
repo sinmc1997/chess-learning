@@ -5,7 +5,7 @@ const dir = path.join(__dirname, '..');
 const store = {};
 let handler = null, keyHandler = null, html = '';
 const app = { set innerHTML(v) { html = v; }, get innerHTML() { return html; } };
-const elems = { app, toast: { textContent: '', className: '' }, imp: { click() {} }, guess: null, self: null, ans: { value: 'abc', focus() {} } };
+const elems = { app, toast: { textContent: '', className: '' }, imp: { click() {} }, guess: null, self: null, ans: { value: 'abc', focus() {} }, dPaste: { value: '我哋飲茶，龘。' }, u0: { value: 'daap6' } };
 const doc = {
   getElementById: id => elems[id] || null,
   querySelector: () => null,
@@ -22,6 +22,7 @@ ctx.globalThis = ctx;
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(path.join(dir, 'content.js'), 'utf8'), ctx);
 ctx.window.SITE = ctx.window.SITE || ctx.SITE;
+if (fs.existsSync(path.join(dir, 'drill.js'))) vm.runInContext(fs.readFileSync(path.join(dir, 'drill.js'), 'utf8'), ctx);
 vm.runInContext(fs.readFileSync(path.join(dir, 'engine.js'), 'utf8'), ctx);
 
 const click = (act, arg) => handler({ target: { closest: () => ({ disabled: false, getAttribute: a => (a === 'data-act' ? act : arg) }) }, preventDefault() {} });
@@ -52,6 +53,30 @@ if (ctx.window.SITE.timed) step('計時挑戰', () => {
   click('timedEnd'); if (!html.includes('再嚟一次')) throw new Error('冇結果頁');
   click('timedGo', ctx.window.SITE.timed.modes[1].id); click('home'); if (!html.includes('智能建議')) throw new Error('離開失敗');
 });
+(ctx.window.SITE.plugins || []).forEach(p => step('插件 ' + p.id, () => {
+  click('plug', p.id); if (!html) throw new Error('插件空白');
+  if (p.id !== 'drill') return;
+  const run = (start) => {
+    click('pa', start);
+    click('pa', 'drill|key|q'); // 撳錯一次
+    for (let i = 0; i < 800 && !html.includes('打完成篇'); i++) {
+      const m = html.match(/data-need="([a-z0-9])"/);
+      if (!m) throw new Error('搵唔到下一個鍵');
+      click('pa', 'drill|key|' + m[1]);
+    }
+    if (!html.includes('打完成篇')) throw new Error('打唔完');
+    if (!html.includes('撳錯 1 次')) throw new Error('撳錯冇計');
+  };
+  run('drill|rand|4');
+  click('pa', 'drill|menu'); click('pa', 'drill|tone'); run('drill|rand|2'); click('pa', 'drill|tone');
+  click('pa', 'drill|menu'); click('pa', 'drill|paste');
+  if (!html.includes('未有讀音')) throw new Error('唔識嘅字冇叫補');
+  click('pa', 'drill|fill');
+  if (!html.includes('dPanel')) throw new Error('補完冇開始');
+  run('drill|again');
+  click('pa', 'drill|menu'); if (!html.includes('最近成績')) throw new Error('冇成績');
+  click('home'); if (!html.includes('智能建議')) throw new Error('離開失敗');
+}));
 // 製造一題錯題再重做
 step('重做錯題', () => { if (ctx.window.SITE) click('quizKey', ctx.window.SITE.order[0]); click('choose', '1'); click('submit'); click('saveSelf'); click('next'); click('mistakes'); click('replay', '0'); });
 const saved = JSON.parse(store[Object.keys(store)[0]]);

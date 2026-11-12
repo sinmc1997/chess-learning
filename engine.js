@@ -10,7 +10,7 @@
 
   // ---------- 儲存 ----------
   function fresh() {
-    return { cards: {}, rating: {}, conf: {}, mistakes: [], learned: {}, hist: [], days: [], levels: {}, timed: {}, saved: '' };
+    return { cards: {}, rating: {}, conf: {}, mistakes: [], learned: {}, hist: [], days: [], levels: {}, timed: {}, plug: {}, saved: '' };
   }
   function load() {
     try {
@@ -305,6 +305,18 @@
     view(h);
   }
 
+  // ---------- 插件（content 外嘅額外訓練，例如跟打文章）----------
+  // SITE.plugins = [{ id, title, desc, start(api), act(action, arg, api), stop?() }]
+  // 撳 data-act="pa" data-arg="插件id|動作|參數" 會交俾插件處理；離開（撳其他嘢）會 call stop()。
+  var curPlug = null;
+  function plugOf(id) { return (SITE.plugins || []).filter(function (p) { return p.id === id; })[0]; }
+  function plugApi(p) {
+    return {
+      view: view, esc: esc, toast: toast, save: save, touchDay: touchDay, home: home,
+      data: function () { S.plug = S.plug || {}; S.plug[p.id] = S.plug[p.id] || {}; return S.plug[p.id]; }
+    };
+  }
+
   // ---------- 讀音（只喺裝置有粵語語音時顯示） ----------
   function hkVoice() {
     if (!('speechSynthesis' in window)) return null;
@@ -517,6 +529,7 @@
     h += '<h3>練習與工具</h3><div class="grid">' +
       (SITE.levels ? card('levels', '🎮 關卡挑戰', '一關一關過，攞星星') : '') +
       (SITE.timed ? card('timed', SITE.timed.title, SITE.timed.desc) : '') +
+      (SITE.plugins || []).map(function (p) { return '<button class="tile" data-act="plug" data-arg="' + p.id + '"><b>' + p.title + '</b><span>' + p.desc + '</span></button>'; }).join('') +
       (SITE.guide ? card('guide', SITE.guideTitle || '📱 教學', SITE.guideDesc || '') : '') +
       card('quiz', '📝 智能練習', '10 題一輪，系統揀最需要練嘅') +
       card('learnList', '📘 學習課程', '示範、要點、主動回憶') +
@@ -566,7 +579,13 @@
   function act(a, g) {
     // 計時中撳其他嘢（離開、主頁…）＝放棄今局
     if (T && a !== 'timedSubmit' && a !== 'timedEnd') { stopTimer(); T = null; }
+    if (curPlug && a !== 'pa') { if (curPlug.stop) curPlug.stop(); curPlug = null; }
     switch (a) {
+      case 'plug': var pg = plugOf(g); if (pg) { curPlug = pg; R = null; pg.start(plugApi(pg)); } break;
+      case 'pa':
+        var pp = String(g).split('|'), pl = plugOf(pp[0]);
+        if (pl) { curPlug = pl; pl.act(pp[1], pp.slice(2).join('|'), plugApi(pl)); }
+        break;
       case 'timed': timedMenu(); break;
       case 'timedGo': timedStart(g); break;
       case 'timedSubmit': timedSubmit(); break;

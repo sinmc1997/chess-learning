@@ -57,6 +57,13 @@ if (SITE._data) {
     for (let seed = 1; seed < 400 && !check; seed++) { const x = SITE.makeQ('type_word', seed); if (x.answerText === w[1]) check = x.check; }
     if (check && !check(w[1].replace(/[0-9 ]/g, '')).ok) report('type_word', w[0], ['唔打聲調判錯']);
   });
+  // 跟打文章：分詞讀音要同句子／詞語原本一致；隨機文章每個字都有讀音
+  if (D.lookup) {
+    D.SENTS.forEach(s => { const t = s.map(x => x[0]).join(''), want = s.map(x => x[1]).join(' '), got = D.lookup(t).map(x => x.jp).join(' '); if (got !== want) report('lookup', t, ['讀音唔一致：' + got]); });
+    D.WORDS.forEach(w => { const got = D.lookup(w[0]).map(x => x.jp).join(' '); if (got !== w[1]) report('lookup', w[0], ['讀音唔一致：' + got]); });
+    Object.keys(D.CHAR_MAP).forEach(c => { if (!/^[a-z]+[1-6]$/.test(D.CHAR_MAP[c])) report('CHAR_MAP', c, ['格式唔啱']); });
+    for (let seed = 1; seed <= 300; seed++) { checked++; const a = D.article(SITE.util.mulberry(seed), 8); if (a.some(t => !t.skip && !/^[a-z]+[1-6]$/.test(t.jp || ''))) report('article', seed, ['有字冇讀音']); }
+  }
   // 診斷：錯邊部分要講啱
   if (D.diagSyl('nei3', 'nei5').k !== 'ERR:tone') report('diag', 'nei3', ['診斷錯']);
   if (D.diagSyl('lei5', 'nei5').k !== 'ERR:ini') report('diag', 'lei5', ['診斷錯']);
